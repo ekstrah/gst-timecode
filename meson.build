@@ -57,3 +57,9 @@ test('layout', test_layout)
 test_check = executable('test_check', 'test/test_check.c',
   dependencies : [gst_dep])
 test('check', test_check)
+
+test_read = executable('test_read', 'test/test_read.c',
+  # --allow-shlib-undefined: the toolchain ld can't see system libglib's own deps (pcre, ffi) at link time
+  link_args : ['-Wl,--allow-shlib-undefined'],
+  dependencies : [gst_dep, gstvideo_dep, dependency('gmodule-2.0')])
+test('read', test_read)

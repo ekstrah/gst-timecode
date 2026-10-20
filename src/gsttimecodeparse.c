@@ -45,6 +45,7 @@
 
 #include "gsttimecodeparse.h"
 #include "timecode_layout.h"
+#include "timecode_read.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_timecodeparse_debug);
 #define GST_CAT_DEFAULT gst_timecodeparse_debug
@@ -240,57 +241,6 @@ static gchar
   return buf;
 }
 
-static GstClockTime
-read_timestamp(int lineoffset, const tc_layout_t *l, GstVideoFrame *frame, Gsttimecodeparse *overlay)
-{
-  GstClockTime timestamp = 0;
-
-  guchar *y = frame->data[0];
-  guchar *u = y + frame->info.offset[1];
-  guchar *v = y + frame->info.offset[2];
-  guint px = l->px;
-
-  // Decide each bit from the mean of the block interior (1-pixel border dropped),
-  // which survives codec ringing at block edges better than a single sample.
-  guint row0 = l->top + lineoffset * px;
-  guint cb = (px / 2 >= 3) ? 1 : 0;   // chroma border
-  guint u_sum = 0;
-  guint v_sum = 0;
-  for (int bit = 0; bit < 64; bit++) {
-    guint col0 = l->left + bit * px;
-    guint y_sum = 0, y_n = 0, c_sum_u = 0, c_sum_v = 0, c_n = 0;
-    for (guint r = row0 + 1; r < row0 + px - 1; r++)
-      for (guint c = col0 + 1; c < col0 + px - 1; c++) {
-        y_sum += y[r * frame->info.stride[0] + c];
-        y_n++;
-      }
-    for (guint r = row0/2 + cb; r < row0/2 + px/2 - cb; r++)
-      for (guint c = col0/2 + cb; c < col0/2 + px/2 - cb; c++) {
-        c_sum_u += u[r * frame->info.stride[1] + c];
-        c_sum_v += v[r * frame->info.stride[2] + c];
-        c_n++;
-      }
-    guint y_value = y_sum / y_n;
-    u_sum += c_sum_u / c_n;
-    v_sum += c_sum_v / c_n;
-    GST_TRACE_OBJECT(overlay, "bit=%d: y mean %u", bit, y_value);
-    if (y_value > 50 && y_value < 200) {
-      GST_TRACE_OBJECT(overlay, "ts %d discarded: y_value=%u", lineoffset, y_value);
-      return 0;
-    }
-
-    timestamp |= (y_value >= 200) ?  (guint64) 1 << (63 - bit) : 0;
-  }
-
-  if ((u_sum / 64 < 100) || (u_sum /64 > 156) || (v_sum / 64 < 100) || (v_sum /64 > 156)) {
-      GST_TRACE_OBJECT(overlay, "ts %d discarded: avg u_sum=%u, avg v_sum=%u",
-                       lineoffset, u_sum/64, v_sum/64);
-      return 0;
-  }
-
-  return timestamp;
-}
-
 typedef struct {
   GstClockTime buffer_time;
   GstClockTime stream_time;
@@ -334,14 +284,11 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   /* GstClockTime clock_time = running_time + gst_element_get_base_time (GST_ELEMENT (overlay)); */
 
   Timestamps timestamps;
-  /* timestamps.buffer_time = read_timestamp (0, &layout, frame, overlay); */
-  /* timestamps.stream_time = read_timestamp (1, &layout, frame, overlay); */
-  /* timestamps.running_time = read_timestamp (2, &layout, frame, overlay); */
-  /* timestamps.clock_time = read_timestamp (3, &layout, frame, overlay); */
-  /* timestamps.render_time = read_timestamp (4, &layout, frame, overlay); */
-  timestamps.sec_offset = read_timestamp (5, &layout, frame, overlay);
-  timestamps.render_realtime = read_timestamp (6, &layout, frame, overlay);
-  timestamps.frame_nr = read_timestamp (7, &layout, frame, overlay);
+  timestamps.sec_offset = timestamps.render_realtime = timestamps.frame_nr = 0;
+  gboolean read_ok =
+      tc_read_line (5, &layout, frame, &timestamps.sec_offset) &
+      tc_read_line (6, &layout, frame, &timestamps.render_realtime) &
+      tc_read_line (7, &layout, frame, &timestamps.frame_nr);
 
   /* GST_LOG_OBJECT (overlay, "Read timestamps: buffer_time = %" GST_TIME_FORMAT */
   /*     ", stream_time = %" GST_TIME_FORMAT ", running_time = %" GST_TIME_FORMAT */
@@ -359,8 +306,8 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   guint64 now = 1000000 * (tv.tv_sec - timestamps.sec_offset) + tv.tv_usec;
   gchar *ts = get_ts();
   long latency = -1;
-  if (timestamps.sec_offset == 0 || timestamps.render_realtime == 0) {
-    GST_DEBUG_OBJECT(overlay, "Failed to read sec_offset or render_realtime");
+  if (!read_ok) {
+    GST_DEBUG_OBJECT(overlay, "Failed to read sec_offset, render_realtime or frame_nr");
   } else if (!tc_check_accept (&overlay->check, timestamps.sec_offset, timestamps.frame_nr)) {
     GST_DEBUG_OBJECT(overlay, "Rejected stale/inconsistent timestamps: sec_offset=%lu frame_nr=%lu",
                      timestamps.sec_offset, timestamps.frame_nr);
