@@ -149,8 +149,7 @@ gst_timecodeoverlay_init (Gsttimecodeoverlay * overlay)
   overlay->frame_nr = 0;
   overlay->latency = GST_CLOCK_TIME_NONE;
 
-  char *path = malloc(sizeof(default_path));
-  strcpy(path, default_path);
+  char *path = g_strdup(default_path);
   overlay->logfile_path = path;
   overlay->logfile = g_fopen(overlay->logfile_path, "w");
   if (!overlay->logfile) {
@@ -203,6 +202,7 @@ gst_timecodeoverlay_set_property (GObject * object, guint prop_id,
       FILE *logfile_new = g_fopen(path_new, "w");
       if (!logfile_new) {
         GST_ERROR_OBJECT (filter, "Failed opening logfile at %s", path_new);
+        g_free(path_new);
         return;
       }
       fputs(logfile_columns, logfile_new);

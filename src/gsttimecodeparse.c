@@ -141,8 +141,7 @@ gst_timecodeparse_class_init (GsttimecodeparseClass * klass)
 static void
 gst_timecodeparse_init (Gsttimecodeparse * filter)
 {
-  char *path = malloc(sizeof(default_path));
-  strcpy(path, default_path);
+  char *path = g_strdup(default_path);
   filter->logfile_path = path;
   tc_check_init (&filter->check);
   filter->logfile = g_fopen(filter->logfile_path, "w");
@@ -193,6 +192,7 @@ gst_timecodeparse_set_property (GObject * object, guint prop_id,
       FILE *logfile_new = g_fopen(path_new, "w");
       if (!logfile_new) {
         GST_ERROR_OBJECT (filter, "Failed opening logfile at %s", path_new);
+        g_free(path_new);
         return;
       }
       fputs(logfile_columns, logfile_new);
