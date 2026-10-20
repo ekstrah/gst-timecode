@@ -249,24 +249,30 @@ read_timestamp(int lineoffset, const tc_layout_t *l, GstVideoFrame *frame, Gstti
   guchar *v = y + frame->info.offset[2];
   guint px = l->px;
 
-  // Don't look at the first pixel of each bit-pixel but at the middle of it
-  guint row = l->top + lineoffset * px + px/2;
-  guint col = l->left + px/2;
-  guint y_offset = row * frame->info.stride[0] + col;
-  guint u_offset = (row/2) * frame->info.stride[1] + col/2;
-  guint v_offset = (row/2) * frame->info.stride[2] + col/2;
-
+  // Decide each bit from the mean of the block interior (1-pixel border dropped),
+  // which survives codec ringing at block edges better than a single sample.
+  guint row0 = l->top + lineoffset * px;
+  guint cb = (px / 2 >= 3) ? 1 : 0;   // chroma border
   guint u_sum = 0;
   guint v_sum = 0;
   for (int bit = 0; bit < 64; bit++) {
-    guchar y_value = y[y_offset + bit * px];
-    guchar u_value = u[u_offset + bit * px/2];
-    guchar v_value = v[v_offset + bit * px/2];
-    u_sum += u_value;
-    v_sum += v_value;
-    GST_TRACE_OBJECT(overlay, "bit=%d: %u,%u,%u", bit, y_value, u_value, v_value);
-    /* if ((y_value != 0 && y_value != 255) || u_value != 128 || v_value != 128) // corrupted */
-    /*   return 0; */
+    guint col0 = l->left + bit * px;
+    guint y_sum = 0, y_n = 0, c_sum_u = 0, c_sum_v = 0, c_n = 0;
+    for (guint r = row0 + 1; r < row0 + px - 1; r++)
+      for (guint c = col0 + 1; c < col0 + px - 1; c++) {
+        y_sum += y[r * frame->info.stride[0] + c];
+        y_n++;
+      }
+    for (guint r = row0/2 + cb; r < row0/2 + px/2 - cb; r++)
+      for (guint c = col0/2 + cb; c < col0/2 + px/2 - cb; c++) {
+        c_sum_u += u[r * frame->info.stride[1] + c];
+        c_sum_v += v[r * frame->info.stride[2] + c];
+        c_n++;
+      }
+    guint y_value = y_sum / y_n;
+    u_sum += c_sum_u / c_n;
+    v_sum += c_sum_v / c_n;
+    GST_TRACE_OBJECT(overlay, "bit=%d: y mean %u", bit, y_value);
     if (y_value > 50 && y_value < 200) {
       GST_TRACE_OBJECT(overlay, "ts %d discarded: y_value=%u", lineoffset, y_value);
       return 0;
