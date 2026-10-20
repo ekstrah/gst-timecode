@@ -49,6 +49,18 @@ check_size (guint w, guint h)
   draw (&f, &l, 7, 0x0102030405060708ULL, 13, 128);
   assert (!tc_read_line (7, &l, &f, &out) && out == 77);
 
+  /* valid luma, chroma 200 (outside 100..156) */
+  draw (&f, &l, 7, 0x0102030405060708ULL, -1, 0);
+  {
+    guchar *u = f.data[0] + f.info.offset[1];
+    for (guint r = 0; r < l.px; r++) {
+      guint row = l.top + 7 * l.px + r;
+      memset (u + (row / 2) * f.info.stride[1] + l.left / 2, 200, l.px / 2 * 64);
+    }
+  }
+  out = 77;
+  assert (!tc_read_line (7, &l, &f, &out) && out == 77);
+
   gst_video_frame_unmap (&f);
   gst_buffer_unref (buf);
 }

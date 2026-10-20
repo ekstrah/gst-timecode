@@ -17,6 +17,8 @@ main (void)
     assert (l.top + 8 * l.px <= sizes[i][1]);
   }
 
+  assert (tc_layout (480, 270, &l) && l.px == 4);
+  assert (!tc_layout (478, 270, &l));
   assert (!tc_layout (320, 240, &l));
   return 0;
 }
