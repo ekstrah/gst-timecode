@@ -44,6 +44,7 @@
 #include <glib/gstdio.h>
 
 #include "gsttimecodeoverlay.h"
+#include "timecode_layout.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_timecodeoverlay_debug);
 #define GST_CAT_DEFAULT gst_timecodeoverlay_debug
@@ -251,29 +252,22 @@ static gchar
 }
 
 static void
-draw_timestamp(int lineoffset, GstClockTime timestamp, Gsttimecodeoverlay *overlay, GstVideoFrame *frame)
+draw_timestamp(int lineoffset, GstClockTime timestamp, const tc_layout_t *l, GstVideoFrame *frame)
 {
   guchar *y = frame->data[0];
   guchar *u = y + frame->info.offset[1];
   guchar *v = y + frame->info.offset[2];
+  guint px = l->px;
 
-  // TODO: Should be properties
-  guint y_pos = 52;
-  guint x_pos = 1920 - 896;
-  guint pxsize = 16; // 1
-
-  guint y_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[0]   + x_pos*8;
-  guint u_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[1]/2 + x_pos*4;
-  guint v_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[2]/2 + x_pos*4;
-
-  for (int line = 0; line < pxsize; line++) {
+  for (guint line = 0; line < px; line++) {
+    guint row = l->top + lineoffset * px + line;
     if (line % 2 == 0) {
-      memset(u + u_offset + frame->info.stride[1] * (line/2-2), 128, pxsize/2 * 64);
-      memset(v + v_offset + frame->info.stride[2] * (line/2-2), 128, pxsize/2 * 64);
+      memset(u + (row/2) * frame->info.stride[1] + l->left/2, 128, px/2 * 64);
+      memset(v + (row/2) * frame->info.stride[2] + l->left/2, 128, px/2 * 64);
     }
     for (int bit = 0; bit < 64; bit++) {
-      char y_color = ((timestamp >> (63 - bit)) & 1) * 255;
-      memset(y + y_offset + frame->info.stride[0] * line + bit * pxsize, y_color, pxsize);
+      guchar y_color = ((timestamp >> (63 - bit)) & 1) * 255;
+      memset(y + row * frame->info.stride[0] + l->left + bit * px, y_color, px);
     }
   }
 }
@@ -293,8 +287,12 @@ gst_timecodeoverlay_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame *
     return GST_FLOW_OK;
   }
 
-  if (frame->info.stride[0] < (8 * frame->info.finfo->pixel_stride[0] * 64)) {
-    GST_WARNING_OBJECT (overlay, "Can't draw timestamps: video-frame is to narrow");
+  tc_layout_t layout;
+  if (!tc_layout (GST_VIDEO_FRAME_WIDTH (frame), GST_VIDEO_FRAME_HEIGHT (frame), &layout)) {
+    static gboolean warned = FALSE;
+    if (!warned)
+      GST_WARNING_OBJECT (overlay, "Can't draw timestamps: video-frame is too small");
+    warned = TRUE;
     return GST_FLOW_OK;
   }
 
@@ -327,9 +325,9 @@ gst_timecodeoverlay_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame *
   fputs(log_line, overlay->logfile);
   g_free(ts);
 
-  draw_timestamp(5, overlay->sec_offset, overlay, frame);
-  draw_timestamp(6, time_ms, overlay, frame);
-  draw_timestamp(7, overlay->frame_nr++, overlay, frame);
+  draw_timestamp(5, overlay->sec_offset, &layout, frame);
+  draw_timestamp(6, time_ms, &layout, frame);
+  draw_timestamp(7, overlay->frame_nr++, &layout, frame);
 
   return GST_FLOW_OK;
 }

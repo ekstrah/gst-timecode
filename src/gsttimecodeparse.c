@@ -44,6 +44,7 @@
 #include <glib/gstdio.h>
 
 #include "gsttimecodeparse.h"
+#include "timecode_layout.h"
 
 GST_DEBUG_CATEGORY_STATIC (gst_timecodeparse_debug);
 #define GST_CAT_DEFAULT gst_timecodeparse_debug
@@ -239,44 +240,39 @@ static gchar
 }
 
 static GstClockTime
-read_timestamp(int lineoffset, GstVideoFrame *frame, Gsttimecodeparse *overlay)
+read_timestamp(int lineoffset, const tc_layout_t *l, GstVideoFrame *frame, Gsttimecodeparse *overlay)
 {
   GstClockTime timestamp = 0;
 
   guchar *y = frame->data[0];
   guchar *u = y + frame->info.offset[1];
   guchar *v = y + frame->info.offset[2];
-
-  uint y_pos = 52;
-  uint x_pos = 1920 - 896;
-  gint pxsize = 16; // 1
-
-  guint y_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[0]   + x_pos*8;
-  guint u_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[1]/2 + x_pos*4;
-  guint v_offset = (y_pos + lineoffset * pxsize) * frame->info.stride[2]/2 + x_pos*4;
+  guint px = l->px;
 
   // Don't look at the first pixel of each bit-pixel but at the middle of it
-  y_offset += pxsize/2 * frame->info.stride[0];
-  u_offset += pxsize/2 * frame->info.stride[1]/2;
-  v_offset += pxsize/2 * frame->info.stride[2]/2;
+  guint row = l->top + lineoffset * px + px/2;
+  guint col = l->left + px/2;
+  guint y_offset = row * frame->info.stride[0] + col;
+  guint u_offset = (row/2) * frame->info.stride[1] + col/2;
+  guint v_offset = (row/2) * frame->info.stride[2] + col/2;
 
   guint u_sum = 0;
   guint v_sum = 0;
   for (int bit = 0; bit < 64; bit++) {
-    guchar y_value = y[y_offset + bit   * pxsize + pxsize/2];
-    guchar u_value = u[u_offset + bit/2 * pxsize + pxsize/2/2];
-    guchar v_value = v[v_offset + bit/2 * pxsize + pxsize/2/2];
+    guchar y_value = y[y_offset + bit * px];
+    guchar u_value = u[u_offset + bit * px/2];
+    guchar v_value = v[v_offset + bit * px/2];
     u_sum += u_value;
     v_sum += v_value;
     GST_TRACE_OBJECT(overlay, "bit=%d: %u,%u,%u", bit, y_value, u_value, v_value);
     /* if ((y_value != 0 && y_value != 255) || u_value != 128 || v_value != 128) // corrupted */
     /*   return 0; */
-    if (y_value > 20 && y_value < 230) {
+    if (y_value > 50 && y_value < 200) {
       GST_TRACE_OBJECT(overlay, "ts %d discarded: y_value=%u", lineoffset, y_value);
       return 0;
     }
 
-    timestamp |= (y_value >= 230) ?  (guint64) 1 << (63 - bit) : 0;
+    timestamp |= (y_value >= 200) ?  (guint64) 1 << (63 - bit) : 0;
   }
 
   if ((u_sum / 64 < 100) || (u_sum /64 > 156) || (v_sum / 64 < 100) || (v_sum /64 > 156)) {
@@ -317,8 +313,12 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
     return GST_FLOW_OK;
   }
 
-  if (frame->info.stride[0] < (8 * frame->info.finfo->pixel_stride[0] * 64)) {
-    GST_WARNING_OBJECT (overlay, "Can't read timestamps: video-frame is to narrow");
+  tc_layout_t layout;
+  if (!tc_layout (GST_VIDEO_FRAME_WIDTH (frame), GST_VIDEO_FRAME_HEIGHT (frame), &layout)) {
+    static gboolean warned = FALSE;
+    if (!warned)
+      GST_WARNING_OBJECT (overlay, "Can't read timestamps: video-frame is too small");
+    warned = TRUE;
     return GST_FLOW_OK;
   }
 
@@ -327,14 +327,14 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   /* GstClockTime clock_time = running_time + gst_element_get_base_time (GST_ELEMENT (overlay)); */
 
   Timestamps timestamps;
-  /* timestamps.buffer_time = read_timestamp (0, frame, overlay); */
-  /* timestamps.stream_time = read_timestamp (1, frame, overlay); */
-  /* timestamps.running_time = read_timestamp (2, frame, overlay); */
-  /* timestamps.clock_time = read_timestamp (3, frame, overlay); */
-  /* timestamps.render_time = read_timestamp (4, frame, overlay); */
-  timestamps.sec_offset = read_timestamp (5, frame, overlay);
-  timestamps.render_realtime = read_timestamp (6, frame, overlay);
-  timestamps.frame_nr = read_timestamp (7, frame, overlay);
+  /* timestamps.buffer_time = read_timestamp (0, &layout, frame, overlay); */
+  /* timestamps.stream_time = read_timestamp (1, &layout, frame, overlay); */
+  /* timestamps.running_time = read_timestamp (2, &layout, frame, overlay); */
+  /* timestamps.clock_time = read_timestamp (3, &layout, frame, overlay); */
+  /* timestamps.render_time = read_timestamp (4, &layout, frame, overlay); */
+  timestamps.sec_offset = read_timestamp (5, &layout, frame, overlay);
+  timestamps.render_realtime = read_timestamp (6, &layout, frame, overlay);
+  timestamps.frame_nr = read_timestamp (7, &layout, frame, overlay);
 
   /* GST_LOG_OBJECT (overlay, "Read timestamps: buffer_time = %" GST_TIME_FORMAT */
   /*     ", stream_time = %" GST_TIME_FORMAT ", running_time = %" GST_TIME_FORMAT */

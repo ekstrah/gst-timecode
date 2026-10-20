@@ -49,3 +49,7 @@ gsttimecodeparse = library('gsttimecodeparse',
   install : true,
   install_dir : plugins_install_dir,
 )
+
+test_layout = executable('test_layout', 'test/test_layout.c',
+  dependencies : [gst_dep])
+test('layout', test_layout)
