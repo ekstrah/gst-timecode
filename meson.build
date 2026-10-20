@@ -53,3 +53,7 @@ gsttimecodeparse = library('gsttimecodeparse',
 test_layout = executable('test_layout', 'test/test_layout.c',
   dependencies : [gst_dep])
 test('layout', test_layout)
+
+test_check = executable('test_check', 'test/test_check.c',
+  dependencies : [gst_dep])
+test('check', test_check)

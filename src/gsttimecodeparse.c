@@ -143,6 +143,7 @@ gst_timecodeparse_init (Gsttimecodeparse * filter)
   char *path = malloc(sizeof(default_path));
   strcpy(path, default_path);
   filter->logfile_path = path;
+  tc_check_init (&filter->check);
   filter->logfile = g_fopen(filter->logfile_path, "w");
   if (!filter->logfile) {
     GST_ERROR_OBJECT (filter, "Failed opening logfile at %s", filter->logfile_path);
@@ -360,6 +361,9 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   long latency = -1;
   if (timestamps.sec_offset == 0 || timestamps.render_realtime == 0) {
     GST_DEBUG_OBJECT(overlay, "Failed to read sec_offset or render_realtime");
+  } else if (!tc_check_accept (&overlay->check, timestamps.sec_offset, timestamps.frame_nr)) {
+    GST_DEBUG_OBJECT(overlay, "Rejected stale/inconsistent timestamps: sec_offset=%lu frame_nr=%lu",
+                     timestamps.sec_offset, timestamps.frame_nr);
   } else {
      latency = now - timestamps.render_realtime;
   }

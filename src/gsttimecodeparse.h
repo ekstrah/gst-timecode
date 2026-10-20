@@ -26,6 +26,8 @@
 #include <gst/gst.h>
 #include <gst/video/gstvideofilter.h>
 
+#include "timecode_check.h"
+
 G_BEGIN_DECLS
 
 #define GST_TYPE_TIMECODEPARSE (gst_timecodeparse_get_type())
@@ -37,6 +39,7 @@ struct _Gsttimecodeparse {
 
   FILE *logfile;
   gchar *logfile_path;
+  tc_check_t check;
 };
 
 G_END_DECLS
