@@ -1,5 +1,10 @@
 project('gst-timecode', 'c', version : '1.0.0', license : 'LGPL')
 
+# Link with the system ld: a linuxbrew ld earlier in PATH can't resolve system glib's deps (same rule as the CMake build).
+if import('fs').exists('/usr/bin/ld')
+  add_project_link_arguments('-B/usr/bin/', language : 'c')
+endif
+
 plugins_install_dir = join_paths(get_option('libdir'), 'gstreamer-1.0')
 
 cc = meson.get_compiler('c')
@@ -59,7 +64,5 @@ test_check = executable('test_check', 'test/test_check.c',
 test('check', test_check)
 
 test_read = executable('test_read', 'test/test_read.c',
-  # --allow-shlib-undefined: the toolchain ld can't see system libglib's own deps (pcre, ffi) at link time
-  link_args : ['-Wl,--allow-shlib-undefined'],
-  dependencies : [gst_dep, gstvideo_dep, dependency('gmodule-2.0')])
+  dependencies : [gst_dep, gstvideo_dep])
 test('read', test_read)
