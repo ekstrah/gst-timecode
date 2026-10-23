@@ -1,3 +1,4 @@
+#undef NDEBUG /* the tests are asserts: keep them live in any build type */
 #include <assert.h>
 #include <string.h>
 #include <gst/gst.h>
