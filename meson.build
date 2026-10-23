@@ -66,3 +66,9 @@ test('check', test_check)
 test_read = executable('test_read', 'test/test_read.c',
   dependencies : [gst_dep, gstvideo_dep])
 test('read', test_read)
+
+# One log row per frame (no timestamp, too small, control), through the real elements of this build.
+test_rows = executable('test_rows', 'test/test_rows.c',
+  c_args : ['-DTC_BUILDDIR="' + meson.current_build_dir() + '"'],
+  dependencies : [gst_dep, gstvideo_dep])
+test('rows', test_rows, depends : [gsttimecodeparse, gsttimecodeoverlay])
