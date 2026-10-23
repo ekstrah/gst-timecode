@@ -35,14 +35,24 @@ ts                           frame_nr   time_s  sec_offset
 ## Player log output
 
 ```
-ts                           frame_nr   latency time_s  time_p  sec_offset
-2022-03-23 11:16:25.863182Z     36      178256  1684924 1863180 1648034184
-2022-03-23 11:16:25.896003Z     37      177611  1718391 1896002 1648034184
-2022-03-23 11:16:25.929350Z     38      177662  1751687 1929349 1648034184
-2022-03-23 11:16:25.962183Z     39      177161  1785020 1962181 1648034184
-2022-03-23 11:16:25.995769Z     40      177368  1818399 1995767 1648034184
-2022-03-23 11:16:26.028441Z     41      176669  1851769 2028438 1648034184
+ts                           frame_nr   latency time_s  time_p  sec_offset  status
+2022-03-23 11:16:25.863182Z     36      178256  1684924 1863180 1648034184  ok
+2022-03-23 11:16:25.896003Z     37      177611  1718391 1896002 1648034184  ok
+2022-03-23 11:16:25.929350Z     38      177662  1751687 1929349 1648034184  ok
+2022-03-23 11:16:25.962183Z     39      177161  1785020 1962181 1648034184  ok
+2022-03-23 11:16:25.995769Z     40      177368  1818399 1995767 1648034184  ok
+2022-03-23 11:16:26.028441Z     41      176669  1851769 2028438 1648034184  ok
 ```
+
+`timecodeparse` writes one row per frame, in the order the frames leave it. `status` says what the
+row's values are worth:
+* `ok`: all three lines read, and the frame passed the integrity check;
+* `unreadable`: a line failed to read (e.g. a decoder-concealed frame); the values are partial;
+* `rejected`: read, but `sec_offset` differs from the stream's or `frame_nr` is not greater than the
+  last accepted one (a decoder copied an older frame's stripes).
+
+`latency` is -1 for `unreadable` and `rejected` rows, and also for an `ok` row whose latency is
+implausible (below 0 s or above 30 s, e.g. a recording decoded later).
 
 
 # Compiling

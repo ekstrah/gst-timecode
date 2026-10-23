@@ -12,10 +12,11 @@ for size in 854x480 1280x720 1920x1080; do
     ! timecodeoverlay location="$tmp/o.log" \
     ! x264enc pass=cbr speed-preset=ultrafast tune=zerolatency key-int-max=30 bitrate=2000 \
     ! h264parse ! avdec_h264 ! timecodeparse location="$tmp/p.log" ! fakesink sync=false || rc=1
-  # parse log columns: ts, frame_nr, latency (us); first line is the header
-  read -r n m < <(tail -n +2 "$tmp/p.log" | awk -F'\t' '{n++} $3>=0 && $3<=1000000 {m++} END {print n+0, m+0}')
-  echo "${w}x${h} run $run: parsed $n, plausible $m"
-  [ "$n" = 314 ] && [ "$m" = 314 ] || rc=1
+  # parse log columns: ts, frame_nr, latency (us), time_s, time_p, sec_offset, status; first line is the header
+  [ "$(head -1 "$tmp/p.log" | cut -f7)" = status ] || { echo "no status column"; rc=1; }
+  read -r n m k < <(tail -n +2 "$tmp/p.log" | awk -F'\t' '{n++} $3>=0 && $3<=1000000 {m++} $7=="ok" {k++} END {print n+0, m+0, k+0}')
+  echo "${w}x${h} run $run: parsed $n, plausible $m, status ok $k"
+  [ "$n" = 314 ] && [ "$m" = 314 ] && [ "$k" = 314 ] || rc=1
  done
 done
 exit $rc

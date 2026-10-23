@@ -60,8 +60,9 @@ enum
 
 static const char *default_path = "/tmp/gsttime_rcvr.csv";
 
-static const char *logfile_columns = "ts\tframe_nr\tlatency\ttime_s\ttime_p\tsec_offset\n";
-static const char *fmt_string = "%s\t%lu\t%ld\t%lu\t%lu\t%lu\n";
+/* One row per frame. status: ok / unreadable / rejected (see timecode_check.h). */
+static const char *logfile_columns = "ts\tframe_nr\tlatency\ttime_s\ttime_p\tsec_offset\tstatus\n";
+static const char *fmt_string = "%s\t%lu\t%ld\t%lu\t%lu\t%lu\t%s\n";
 
 /* the capabilities of the inputs and outputs.
  */
@@ -262,21 +263,16 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   if (GST_CLOCK_TIME_IS_VALID (GST_BUFFER_TIMESTAMP (frame->buffer)))
     gst_object_sync_values (GST_OBJECT (filter), GST_BUFFER_TIMESTAMP (frame->buffer));
 
-  GstClockTime buffer_time = GST_BUFFER_TIMESTAMP (frame->buffer);
-
-  if (!GST_CLOCK_TIME_IS_VALID (buffer_time)) {
-    GST_DEBUG_OBJECT (overlay, "Can't measure latency: buffer timestamp is "
-        "invalid");
-    return GST_FLOW_OK;
-  }
-
+  /* Every frame gets a log row, so the i-th row is the i-th frame out of the element: the
+   * stripes carry the times, the buffer timestamp is not needed to read them. */
   tc_layout_t layout;
-  if (!tc_layout (GST_VIDEO_FRAME_WIDTH (frame), GST_VIDEO_FRAME_HEIGHT (frame), &layout)) {
+  gboolean have_layout =
+      tc_layout (GST_VIDEO_FRAME_WIDTH (frame), GST_VIDEO_FRAME_HEIGHT (frame), &layout);
+  if (!have_layout) {
     static gboolean warned = FALSE;
     if (!warned)
       GST_WARNING_OBJECT (overlay, "Can't read timestamps: video-frame is too small");
     warned = TRUE;
-    return GST_FLOW_OK;
   }
 
   /* GstSegment *segment = &GST_BASE_TRANSFORM (overlay)->segment; */
@@ -285,10 +281,10 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
 
   Timestamps timestamps;
   timestamps.sec_offset = timestamps.render_realtime = timestamps.frame_nr = 0;
-  gboolean read_ok =
-      tc_read_line (5, &layout, frame, &timestamps.sec_offset) &
-      tc_read_line (6, &layout, frame, &timestamps.render_realtime) &
-      tc_read_line (7, &layout, frame, &timestamps.frame_nr);
+  gboolean read_ok = have_layout &&
+      (tc_read_line (5, &layout, frame, &timestamps.sec_offset) &
+       tc_read_line (6, &layout, frame, &timestamps.render_realtime) &
+       tc_read_line (7, &layout, frame, &timestamps.frame_nr));
 
   /* GST_LOG_OBJECT (overlay, "Read timestamps: buffer_time = %" GST_TIME_FORMAT */
   /*     ", stream_time = %" GST_TIME_FORMAT ", running_time = %" GST_TIME_FORMAT */
@@ -306,9 +302,11 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   guint64 now = 1000000 * (tv.tv_sec - timestamps.sec_offset) + tv.tv_usec;
   gchar *ts = get_ts();
   long latency = -1;
-  if (!read_ok) {
+  tc_status_t status = tc_check_status (&overlay->check, read_ok,
+      timestamps.sec_offset, timestamps.frame_nr);
+  if (status == TC_STATUS_UNREADABLE) {
     GST_DEBUG_OBJECT(overlay, "Failed to read sec_offset, render_realtime or frame_nr");
-  } else if (!tc_check_accept (&overlay->check, timestamps.sec_offset, timestamps.frame_nr)) {
+  } else if (status == TC_STATUS_REJECTED) {
     GST_DEBUG_OBJECT(overlay, "Rejected stale/inconsistent timestamps: sec_offset=%lu frame_nr=%lu",
                      timestamps.sec_offset, timestamps.frame_nr);
   } else {
@@ -320,8 +318,9 @@ gst_timecodeparse_transform_frame_ip (GstVideoFilter * filter, GstVideoFrame * f
   }
   #define LOG_LINE_LEN 256
   char log_line[LOG_LINE_LEN] = {0};
-  snprintf (log_line, LOG_LINE_LEN, fmt_string, ts, timestamps.frame_nr, latency, timestamps.render_realtime, now, timestamps.sec_offset);
-  GST_LOG_OBJECT (overlay,          fmt_string, ts, timestamps.frame_nr, latency, timestamps.render_realtime, now, timestamps.sec_offset);
+  const char *status_name = tc_status_name (status);
+  snprintf (log_line, LOG_LINE_LEN, fmt_string, ts, timestamps.frame_nr, latency, timestamps.render_realtime, now, timestamps.sec_offset, status_name);
+  GST_LOG_OBJECT (overlay,          fmt_string, ts, timestamps.frame_nr, latency, timestamps.render_realtime, now, timestamps.sec_offset, status_name);
   fputs(log_line, overlay->logfile);
   g_free(ts);
 
